@@ -12,14 +12,13 @@ const app = express();
 const upload = multer();
 
 const corsOptions = {
-    origin: [
-        'https://cover-craft-ai-8yao-*.vercel.app',
-        'https://cover-craft-ai-8yao.vercel.app', 
-        'http://localhost:3000'], 
-    methods: ['GET', 'POST'],     
+    origin: (origin, callback) => {
+            callback(null, true);
+    },
+    methods: ['GET', 'POST', 'OPTIONS'],     
     allowedHeaders: ['Content-Type'],                     
     credentials: true                                 
-  };
+};
 
 app.use(cors(corsOptions));
 app.use(express.json());
