@@ -10,7 +10,7 @@ function UploadResume({ setResumeText, setJobDescription, setMatchedSkills }) {
     const [error, setError] = useState('');
     const navigate = useNavigate();
 
-    const API_BASE_URL = 'https://covercraftai.onrender.com';
+    const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
     
     const handleFileChange = (e) => {
         const file = e.target.files[0];

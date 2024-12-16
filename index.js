@@ -11,7 +11,13 @@ const dotenv = require('dotenv').config();
 const app = express();
 const upload = multer();
 
-app.use(cors());
+const corsOptions = {
+    origin: ['你的前端域名', 'http://localhost:3000'], // 允许的前端域名列表
+    methods: ['GET', 'POST'],                          // 允许的请求方法
+    credentials: true                                  // 允许携带凭证
+  };
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 const openai = new OpenAI({
