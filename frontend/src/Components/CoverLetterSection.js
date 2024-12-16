@@ -78,7 +78,7 @@ function CoverLetterSection({
         console.log(`Generating options for section: ${current.name}`);
 
         try {
-            const response = await axios.post(current.endpoint, {
+            const response = await api.post(current.endpoint, {
                 jobDescription,
                 resumeText,
             });

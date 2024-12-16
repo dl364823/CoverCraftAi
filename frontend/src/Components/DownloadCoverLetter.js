@@ -5,7 +5,7 @@ import './DownloadCoverLetter.css';
 import { htmlToText } from 'html-to-text';
 import axios from 'axios';
 import { useNavigate, Navigate } from 'react-router-dom';
-
+import api from '../utils/api';
 
 function DownloadCoverLetter({ selectedSections, coverLetter, setCoverLetter, resumeText }) {
   const navigate = useNavigate();
@@ -106,8 +106,8 @@ ${personalDetails.name || '[Your Name]'}<br />
     setIsDownloading(true);
     setErrorMessage('');
     try {
-      const response = await axios.post(
-        'http://localhost:3000/generate-word',
+      const response = await api.post(
+        '/generate-word',
         { coverLetter: content },
         { responseType: 'blob' }
       );

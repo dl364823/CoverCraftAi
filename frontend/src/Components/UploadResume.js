@@ -44,13 +44,13 @@ function UploadResume({ setResumeText, setJobDescription, setMatchedSkills }) {
         try{
             const formData = new FormData();
             formData.append('resume', resumeFile);
-            const resumeTextResponse = await axios.post('/upload-resume', formData, { 
+            const resumeTextResponse = await api.post('/upload-resume', formData, { 
                 headers: { 'Content-Type': 'multipart/form-data' } 
             });
             const resumeText = resumeTextResponse.data.text;
             setResumeText(resumeText);
             setJobDescription(jobDescriptionLocal);
-            const matchResponse = await axios.post('/match-skills', { 
+            const matchResponse = await api.post('/match-skills', { 
                 resumeText, 
                 jobDescription: jobDescriptionLocal
             });

@@ -12,12 +12,10 @@ const app = express();
 const upload = multer();
 
 const corsOptions = {
-    origin: (origin, callback) => {
-            callback(null, true);
-    },
-    methods: ['GET', 'POST', 'OPTIONS'],     
-    allowedHeaders: ['Content-Type'],                     
-    credentials: true                                 
+    origin: ['http://localhost:3000', 'https://covercraftai-frontend.onrender.com'],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
 };
 
 app.use(cors(corsOptions));
