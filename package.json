@@ -1,0 +1,23 @@
+{
+  "name": "cover-letter-generator",
+  "version": "1.0.0",
+  "main": "index.js",
+  "proxy": "http://localhost:3000",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "docx": "^9.0.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "multer": "^1.4.5-lts.1",
+    "openai": "^4.71.1",
+    "pdf-parse": "^1.1.1",
+    "pdfkit": "^0.15.1"
+  }
+}

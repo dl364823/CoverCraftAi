@@ -1,0 +1,35 @@
+fixed {
+    position: fixed;
+  }
+  
+  #logo-sidebar {
+    width: 16rem;
+    transition: transform 0.3s ease-in-out;
+  }
+  
+  .sm\:ml-64 {
+    margin-left: 16rem;
+  }
+  
+  .p-4 {
+    padding: 1rem;
+  }
+  
+  .text-center {
+    text-align: center;
+  }
+  
+  /* Responsive sidebar toggle */
+  @media (max-width: 640px) {
+    #logo-sidebar {
+      transform: translateX(-100%);
+    }
+  
+    .sm\:ml-64 {
+      margin-left: 0;
+    }
+  
+    .fixed.top-0 {
+      z-index: 50;
+    }
+  }
