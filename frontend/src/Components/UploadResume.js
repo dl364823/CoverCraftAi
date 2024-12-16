@@ -10,7 +10,7 @@ function UploadResume({ setResumeText, setJobDescription, setMatchedSkills }) {
     const [error, setError] = useState('');
     const navigate = useNavigate();
 
-    const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+    const API_BASE_URL = process.env.REACT_APP_API_BASE_URL?.replace(/\/$/, '');
     
     const handleFileChange = (e) => {
         const file = e.target.files[0];
@@ -43,13 +43,13 @@ function UploadResume({ setResumeText, setJobDescription, setMatchedSkills }) {
         try{
             const formData = new FormData();
             formData.append('resume', resumeFile);
-            const resumeTextResponse = await axios.post(`${API_BASE_URL}/upload-resume`, formData, { 
+            const resumeTextResponse = await axios.post(`${API_BASE_URL}upload-resume`, formData, { 
                 headers: { 'Content-Type': 'multipart/form-data' } 
             });
             const resumeText = resumeTextResponse.data.text;
             setResumeText(resumeText);
             setJobDescription(jobDescriptionLocal);
-            const matchResponse = await axios.post(`${API_BASE_URL}/match-skills`, { 
+            const matchResponse = await axios.post(`${API_BASE_URL}match-skills`, { 
                 resumeText, 
                 jobDescription: jobDescriptionLocal
             });
