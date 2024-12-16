@@ -13,7 +13,7 @@ const upload = multer();
 
 const corsOptions = {
     origin: [
-        'https://cover-craft-ai-8yao-qnna6xvh2-dl364823s-projects.vercel.app',
+        'https://cover-craft-ai-8yao-*.vercel.app'
         'https://cover-craft-ai-8yao.vercel.app', 
         'http://localhost:3000'], 
     methods: ['GET', 'POST'],     

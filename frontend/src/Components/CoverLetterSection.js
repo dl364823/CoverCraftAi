@@ -18,7 +18,7 @@ function CoverLetterSection({
     const [sectionHistory, setSectionHistory] = useState({});
     const navigate = useNavigate();
 
-    const API_BASE_URL = process.env.REACT_APP_API_BASE_URL?.replace(/\/$/, '');
+    const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
     const steps = [
         { 
@@ -77,7 +77,7 @@ function CoverLetterSection({
         console.log(`Generating options for section: ${current.name}`);
 
         try {
-            const response = await axios.post(`${API_BASE_URL}/${current.endpoint}`, {
+            const response = await axios.post(`${API_BASE_URL}${current.endpoint}`, {
                 jobDescription,
                 resumeText,
             });
