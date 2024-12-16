@@ -19,8 +19,6 @@ function CoverLetterSection({
     const [sectionHistory, setSectionHistory] = useState({});
     const navigate = useNavigate();
 
-    const API_BASE_URL = process.env.REACT_APP_API_BASE_URL?.replace(/\/+$/, '');
-
     const steps = [
         { 
             name: 'Open Hook', 
@@ -132,7 +130,7 @@ function CoverLetterSection({
         setLoading(true);
 
         try {
-            const response = await axios.post(`${API_BASE_URL}/${current.endpoint}`, {
+            const response = await api.post(current.endpoint, {
                 jobDescription,
                 resumeText,
             });
