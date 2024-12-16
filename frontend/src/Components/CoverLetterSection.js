@@ -18,6 +18,8 @@ function CoverLetterSection({
     const [sectionHistory, setSectionHistory] = useState({});
     const navigate = useNavigate();
 
+    const API_BASE_URL = 'https://covercraftai.onrender.com';
+
     const steps = [
         { 
             name: 'Open Hook', 
@@ -75,7 +77,7 @@ function CoverLetterSection({
         console.log(`Generating options for section: ${current.name}`);
 
         try {
-            const response = await axios.post(`http://localhost:3000${current.endpoint}`, {
+            const response = await axios.post(`${API_BASE_URL}/${current.endpoint}`, {
                 jobDescription,
                 resumeText,
             });
@@ -129,7 +131,7 @@ function CoverLetterSection({
         setLoading(true);
 
         try {
-            const response = await axios.post(`http://localhost:3000${current.endpoint}`, {
+            const response = await axios.post(`${API_BASE_URL}/${current.endpoint}`, {
                 jobDescription,
                 resumeText,
             });
