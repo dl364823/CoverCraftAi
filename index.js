@@ -12,9 +12,9 @@ const app = express();
 const upload = multer();
 
 const corsOptions = {
-    origin: ['你的前端域名', 'http://localhost:3000'], // 允许的前端域名列表
-    methods: ['GET', 'POST'],                          // 允许的请求方法
-    credentials: true                                  // 允许携带凭证
+    origin: ['cover-craft-ai-8yao.vercel.app', 'http://localhost:3000'], 
+    methods: ['GET', 'POST'],                          
+    credentials: true                                 
   };
 
 app.use(cors(corsOptions));
@@ -426,4 +426,4 @@ app.post('/submit-feedback', (req, res) => {
 
 //Server listen
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server running on ${PORT}`));
