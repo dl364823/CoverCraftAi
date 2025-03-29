@@ -1,0 +1,21 @@
+{
+    "family": "covercraft-task",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "256",
+    "memory": "512",
+    "executionRoleArn": "arn:aws:iam::368721899580:role/ecsTaskExecutionRole",
+    "containerDefinitions": [
+      {
+        "name": "covercraft-container",
+        "image": "368721899580.dkr.ecr.us-east-1.amazonaws.com/covercraft-ai:latest",
+        "portMappings": [
+          {
+            "containerPort": 3000,
+            "protocol": "tcp"
+          }
+        ],
+        "essential": true
+      }
+    ]
+  }
