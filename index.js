@@ -10,6 +10,7 @@ const dotenv = require('dotenv').config();
 const mongoose = require('mongoose');
 const PromptLog = require('./models/PromptLog');
 const { v4: uuidv4 } = require('uuid');
+const rateLimit = require('express-rate-limit');
 
 // MongoDB connect
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/covercraft', {
@@ -36,6 +37,14 @@ const openai = new OpenAI({
 });
 
 console.log("API Key:", process.env.OPENAI_API_KEY);
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again after 15 minutes'
+});
+
+app.use(limiter);
 
 app.get('/', (req, res) => {
     res.send('Server is running');
