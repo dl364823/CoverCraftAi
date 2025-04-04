@@ -22,7 +22,7 @@ const app = express();
 const upload = multer();
 
 const corsOptions = {
-    origin: ['http://localhost:3000', 'https://covercraftai-frontend.onrender.com'],
+    origin: ['http://localhost:3001', 'https://covercraftai-frontend.onrender.com'],
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
