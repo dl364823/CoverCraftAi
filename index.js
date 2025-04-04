@@ -54,14 +54,14 @@ app.post('/upload-resume', upload.single('resume'), async (req, res) => {
     }
 });
 
-// Step2: Job Description + Skill Matching Endpoint [Received] []
+// Step2: Job Description + Skill Matching Endpoint [Received] []    
 app.post('/match-skills', async (req, res) => {
     const { resumeText, jobDescription } = req.body;
     console.log("Received resume text for matching:", resumeText);
     console.log("Received job description for matching:", jobDescription);
-
+  
     try {
-        // Create a prompt for OpenAI to extract relevant skills
+        // Modified prompt for JSON output
         const prompt = `
         You are an expert job skills matcher. Your task is to match skills in the following resume with the requirements in the job description.
         
@@ -71,22 +71,14 @@ app.post('/match-skills', async (req, res) => {
         Resume Text: 
         ${resumeText}
         
-        Please create a structured table in markdown format with two columns:
-        - **Job Requirement** (exact text from the job description).
-        - **Relevant Skills/Experience** (relevant experience from the resume that aligns with each job requirement, with a brief description explaining the relevance).
-         - **Match Level** (High, Medium, or Low, based on how well the experience matches the requirement).
+        Please output only a valid JSON object with a key "matches" that is an array. Each element in the array should be an object with the following keys:
+        - "jobRequirement": (string) the exact text from the job description
+        - "relevantExperience": (string) the relevant experience from the resume that aligns with the requirement (or "No matching experience found" if none)
+        - "matchLevel": (string) one of "High", "Medium", or "Low"
         
-        Ensure each row in the table represents one job requirement matched with one relevant skill or experience from the resume. If there is no match, write "No matching experience found" in the "Relevant Skills / Experience" column. Follow this format exactly:
-
-        | Job Requirement                         | Relevant Skills / Experience                                                | Match Level |
-        |-----------------------------------------|-----------------------------------------------------------------------------|-------------|
-        | Proficiency in JavaScript               | Proficient in JavaScript (ES6+) with experience in frameworks like React.js.| High        |
-        | Experience with Python                  | Familiar with Python for data analysis and automation tasks.                | Medium      |
-        | Expertise in cloud infrastructure       | No matching experience found                                                | Low         |
-                
-        Only output the table and nothing else.
+        Do not output any additional text.
         `;
-
+        
         const response = await openai.chat.completions.create({
             model: 'gpt-4o',
             messages:[
@@ -96,25 +88,36 @@ app.post('/match-skills', async (req, res) => {
             max_tokens: 3000,
             temperature: 0.1
         });
-
+        
         console.log("OpenAI API response:", response);
-
+        
         if (!response.choices || response.choices.length === 0) {
             throw new Error("No choices returned in OpenAI response");
         }
-
-        const matchedSkillsText = response.choices[0].message.content.trim();
-        console.log("Matched skills:", matchedSkillsText);
-
+        
+        const jsonResponse = response.choices[0].message.content.trim();
+        console.log("JSON Response:", jsonResponse);
+        
+        const cleanedJsonResponse = jsonResponse.replace(/```json|```/g, '');
+        let parsedOutput;
+        try {
+            parsedOutput = JSON.parse(cleanedJsonResponse);
+        } catch (err) {
+            console.error("Failed to parse JSON response:", err);
+            throw new Error("Failed to parse JSON response: " + err.message);
+        }
+       
+        const matchedSkills = parsedOutput.matches;
+        
         const requestId = uuidv4();
         const timestamp = new Date();
-
+        
         const usage = response.usage || {
           prompt_tokens: null,
           completion_tokens: null,
           total_tokens: null,
         };
-
+        
         await PromptLog.create({
           requestId,
           timestamp,
@@ -124,34 +127,20 @@ app.post('/match-skills', async (req, res) => {
             jobDesc: jobDescription,
           },
           prompt, 
-          output: matchedSkillsText,
+          output: cleanedJsonResponse,
           model: response.model || 'gpt-4o',
           usage,
           finishReason: response.choices[0].finish_reason || 'unknown'
         });
-
-        const rows = matchedSkillsText
-            .split('\n')
-            .filter(line => line.startsWith('|') && line.includes('|') && !line.includes('---')) // Only include lines that appear to be table rows
-            .map(line => line.split('|').map(cell => cell.trim()));
-
-        // Extract structured data from parsed rows
-        const matchedSkills = rows.slice(1).map(row => {
-            return {
-                jobRequirement: row[1] || 'Unknown Requirement',  // Ensure column indexes match the format
-                relevantExperience: row[2] || 'No matching experience found',
-                matchLevel: row[3] || 'Low'
-            };
-        });
-
-        console.log("Structured matched skills:", matchedSkills);
-
+        
+        console.log("Parsed matched skills:", matchedSkills);        
         res.json({ matchedSkills, requestId });
     } catch (error) {
         console.error("Error matching skills with OpenAI:", error);
         res.status(500).json({ error: 'Error matching skills with OpenAI' });
     }
-});
+  });
+  
 
 // Step3: Cover Letter Section
 // Create the Function
@@ -166,124 +155,72 @@ const createPrompt = (sectionName, jobDescription, resumeText) => {
                 Each paragraph should:
                 - Be short, engaging, and showcase genuine enthusiasm for the company.
                 - Highlight a unique connection to the company's mission, culture, or achievements.
-                - Avoid any symbols like '**' 
+                - Avoid any symbols like '**'.
 
                 Job Description: ${jobDescription}
                 Resume: ${resumeText}
 
-                **Format the output as:
-                    Option 1:
-                    [Paragraph]
+                Please output only a valid JSON object with a key "options" that is an array.
+                Each element in the array should be an object with two keys:
+                - "paragraph": a string representing the paragraph content.
+                - "explanation": a string explaining why this paragraph is a good option.
 
-                    Why Choose This: [Explanation]
-
-                    Option 2:
-                    [Paragraph]
-
-                    Why Choose This: [Explanation]
-
-                    Option 3:
-                    [Paragraph]
-
-                    Why Choose This: [Explanation]**
-                **
-                Learn from the examples to ensure the contents you generated sound natural, authentic, and true to user's personality, avoiding generic or AI-like language:
-                - Example1: I was so excited to see your post on LinkedIn because it's exactly the type of job I'm looking for: an opportunity to bring my experience with video production and enthusiasm for storytelling to an organization that sets the standard for high-quality management content.
-                - Example2: I am a second year master’s student in MIT’s Technology and Policy Program (TPP) writing to apply for a consulting position in Navigant’s Emerging Technology & Business Strategy group. After speaking with John Smith at the MIT career fair, I realized that Navigant’s values of excellence, continuous development, entrepreneurial spirit, and integrity align with the principles that guide me every day and that have driven me throughout my career. Moreover, I believe that my knowledge of the energy sector, passion for data analysis, polished communication skills, and four years of consulting experience will enable me to deliver superior value for Navigant’s clients.
+                Do not output any additional text.
             `;
-
         case 'Key Experiences':
             return `
                 Write three key experiences paragraphs for a cover letter in the first person.
                 Each paragraph should:
                 - Highlight 2-3 specific achievements or projects from my experience.
                 - Use concrete examples to showcase impact and relevance.
-                - Avoid any symbols like '**' 
-                
+                - Avoid any symbols like '**'.
+
                 Job Description: ${jobDescription}
                 Resume: ${resumeText}
 
-                **Format the output as:
-                    Option 1:
-                    [Paragraph]
+                Please output only a valid JSON object with a key "options" that is an array.
+                Each element in the array should be an object with two keys:
+                - "paragraph": a string representing the paragraph content.
+                - "explanation": a string explaining why this paragraph is a good option.
 
-                    Why Choose This: [Explanation]
-
-                    Option 2:
-                    [Paragraph]
-
-                    Why Choose This: [Explanation]
-
-                    Option 3:
-                    [Paragraph]
-
-                    Why Choose This: [Explanation]**
-                **
-                Learn from the examples to ensure the contents you generated sound natural, authentic, and true to user's personality, avoiding generic or AI-like language:
-                - Example1: In addition to five years of experience in broadcast journalism, research, and video production, I would bring an organized and systems-level perspective to this role. I view video production as a puzzle, and like to think about which parts need to come together in order to make a great final product. My approach is to have in-depth conversations with my team members, and the various stakeholders, before each project. This helps me nail down the logistics — from location to talent. From there, the fun begins: fleshing out the concept and identifying what visuals will best represent it. Ideation and storyboarding are essential in this step. I know I'm not right all the time, so I enjoy working with a diverse team that can bring in new perspectives, brainstorm, and pitch ideas that will make the final product stronger. Whenever possible, I also try to seek out other sources for inspiration, like magazines, which allow me to observe different ways of expression and storytelling. This approach has served me well. It's what has allowed me to enter the film industry and grow as a creator. On my website, you can see examples of how I use the above process to create fun, engaging content.
-                - Example2: As a graduate student in MIT’s Technology and Policy Program, I spend every day at the cutting edge of the energy sector. In my capacity as an MIT Energy Initiative research assistant, I use statistical analysis to investigate trends in public acceptance and regulation related to emerging energy technologies. Graduate classes in data science, energy economics, energy ventures and strategy, and technology policy have prepared me to help Navigant offer the expert services that set it apart from competitors. Furthermore, I will bring Navigant the same leadership skills that I used as the student leader for the MIT Energy Conference’s Technology Commercialization round-table, and as the mentorship manager for the MIT Clean Energy Prize.
-                - Example3: Even before MIT, my four years of work experience in consulting—first at LMN Research Group and then at XYZ Consulting—allowed me to develop the skillset that Navigant looks for in candidates. As a science writer and policy analyst at LMN Research Group, I developed superb technical writing and visual communication skills, as well as an ability to communicate and collaborate with clients at federal agencies such as EPA and DOE. As a research analyst at XYZ Consulting, I developed an in-depth understanding of data analysis, program evaluation, and policy design.
-                `;
+                Do not output any additional text.
+            `;
         case 'Personal Values':
             return `
-                Write three personal vlaues paragraphs for a cover letter in the first person.
+                Write three personal values paragraphs for a cover letter in the first person.
                 Each paragraph should:
                 - Discuss my personal values, passions, and career aspirations.
                 - Show alignment with the company's mission and the role's objectives.
-                - Avoid any symbols like '**' 
-                
+                - Avoid any symbols like '**'.
+
                 Job Description: ${jobDescription}
                 Resume: ${resumeText}
-                **Format the output as:
-                    Option 1:
-                    [Paragraph]
 
-                    Why Choose This: [Explanation]
+                Please output only a valid JSON object with a key "options" that is an array.
+                Each element in the array should be an object with two keys:
+                - "paragraph": a string representing the paragraph content.
+                - "explanation": a string explaining why this paragraph is a good option.
 
-                    Option 2:
-                    [Paragraph]
-
-                    Why Choose This: [Explanation]
-
-                    Option 3:
-                    [Paragraph]
-
-                    Why Choose This: [Explanation]**
-                **    
-                Learn from the examples to ensure the contents you generated sound natural, authentic, and true to user's personality, avoiding generic or AI-like language:
-                - Example1: Given this experience and my enthusiasm for the work you do, I believe I'd make a great addition to your team. I recently had a chance to try out your Patient Zero product at my current organization. The simulation is both challenging and engaging. I was impressed by your ability to apply  different storytelling methods to an online training course (which, let's admit, can often be a little dry). Your work exemplifies exactly what I believe: There's an opportunity to tell a compelling story in everything — all you have to do is deliver it right.
-                `;
+                Do not output any additional text.
+            `;
         case 'Closing Statement':
             return `
                 Write three closing statement paragraphs for a cover letter in the first person.
                 Each paragraph should:
                 - Be short, confident, and enthusiastic.
                 - Reflect my unique voice and excitement for the role.
-                - Avoid any symbols like '**' 
-                
+                - Avoid any symbols like '**'.
+
                 Job Description: ${jobDescription}
                 Resume: ${resumeText}
-                **Format the output as:
-                    Option 1:
-                    [Paragraph]
 
-                    Why Choose This: [Explanation]
+                Please output only a valid JSON object with a key "options" that is an array.
+                Each element in the array should be an object with two keys:
+                - "paragraph": a string representing the paragraph content.
+                - "explanation": a string explaining why this paragraph is a good option.
 
-                    Option 2:
-                    [Paragraph]
-
-                    Why Choose This: [Explanation]
-
-                    Option 3:
-                    [Paragraph]
-
-                    Why Choose This: [Explanation]**
-
-                **  
-                Learn from the examples to ensure the contents you generated sound natural, authentic, and true to user's personality, avoiding generic or AI-like language:
-                - Example1: I'd love to come in and speak with you more about what I'd be able to offer in this role. Harvard Business Publishing is my top choice and I believe I'd make valuable contributions to your team. Thank you for your time and consideration!
-                - Example2: I take pride in my skills and experience in several domains: critical thinking and analysis, communication, and leadership. I note that Navigant values these same ideals, and I very much hope to use my abilities in service of the firm and its clients. Thank you for your time and consideration, I look forward to speaking with you further about my qualifications.
-                `;
+                Do not output any additional text.
+            `;
         default:
             throw new Error('Invalid section name');
     }
@@ -338,7 +275,23 @@ async function generateSection(req, res, sectionName) {
         if (!response.choices || response.choices.length === 0) {
             throw new Error("No choices returned in OpenAI response");
         }
-        const content = response.choices[0].message.content.trim()
+        const jsonResponse = response.choices[0].message.content.trim()
+        console.log("JSON Response:", jsonResponse);
+        
+        const cleanedJsonResponse = jsonResponse.replace(/```json|```/g, '');
+
+        let parsedOutput;
+        try {
+            parsedOutput = JSON.parse(cleanedJsonResponse);
+        } catch (err) {
+            console.error("Failed to parse JSON response:", err);
+            throw new Error("Failed to parse JSON response: " + err.message);
+        }
+
+        const options = parsedOutput.options;
+        if (!parsedOutput.options || !Array.isArray(parsedOutput.options)) {
+            throw new Error("Invalid JSON format: 'options' key is missing or not an array.");
+          }
         const requestId = uuidv4();
         const timestamp = new Date();
 
@@ -357,24 +310,11 @@ async function generateSection(req, res, sectionName) {
             jobDesc: jobDescription,
           },
           prompt, 
-          output: content,
+          output: cleanedJsonResponse,
           model: response.model || 'gpt-4o',
           usage,
           finishReason: response.choices[0].finish_reason || 'unknown'
         });
-
-        const options = content 
-            .split(/Option \d+:/)
-            .map(optionText => optionText.trim())
-            .filter(optionText => optionText)
-            .map(optionText => {
-                const [paragraph, ...reasonParts] = optionText.split('Why Choose This:');
-                const reason = reasonParts.join('Why Choose This:').trim();
-                return {
-                    option: paragraph.trim(),
-                    reason: reason,
-                };
-            });
 
         console.log("Generated options for", sectionName, ":", options);
         res.json({ options, requestId });
