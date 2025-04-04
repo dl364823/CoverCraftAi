@@ -7,6 +7,16 @@ const { Document, Packer, Paragraph, TextRun } = require('docx');
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv').config();
+const mongoose = require('mongoose');
+const PromptLog = require('./models/PromptLog');
+const { v4: uuidv4 } = require('uuid');
+
+// MongoDB connect
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/covercraft', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => console.log('✅ Connected to MongoDB'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
 
 const app = express();
 const upload = multer();
@@ -96,6 +106,30 @@ app.post('/match-skills', async (req, res) => {
         const matchedSkillsText = response.choices[0].message.content.trim();
         console.log("Matched skills:", matchedSkillsText);
 
+        const requestId = uuidv4();
+        const timestamp = new Date();
+
+        const usage = response.usage || {
+          prompt_tokens: null,
+          completion_tokens: null,
+          total_tokens: null,
+        };
+
+        await PromptLog.create({
+          requestId,
+          timestamp,
+          style: 'Skill Matching', 
+          inputs: {
+            resume: resumeText,
+            jobDesc: jobDescription,
+          },
+          prompt, 
+          output: matchedSkillsText,
+          model: response.model || 'gpt-4o',
+          usage,
+          finishReason: response.choices[0].finish_reason || 'unknown'
+        });
+
         const rows = matchedSkillsText
             .split('\n')
             .filter(line => line.startsWith('|') && line.includes('|') && !line.includes('---')) // Only include lines that appear to be table rows
@@ -112,7 +146,7 @@ app.post('/match-skills', async (req, res) => {
 
         console.log("Structured matched skills:", matchedSkills);
 
-        res.json({ matchedSkills });
+        res.json({ matchedSkills, requestId });
     } catch (error) {
         console.error("Error matching skills with OpenAI:", error);
         res.status(500).json({ error: 'Error matching skills with OpenAI' });
@@ -305,6 +339,30 @@ async function generateSection(req, res, sectionName) {
             throw new Error("No choices returned in OpenAI response");
         }
         const content = response.choices[0].message.content.trim()
+        const requestId = uuidv4();
+        const timestamp = new Date();
+
+        const usage = response.usage || {
+          prompt_tokens: null,
+          completion_tokens: null,
+          total_tokens: null,
+        };
+
+        await PromptLog.create({
+          requestId,
+          timestamp,
+          style: sectionName, 
+          inputs: {
+            resume: resumeText,
+            jobDesc: jobDescription,
+          },
+          prompt, 
+          output: content,
+          model: response.model || 'gpt-4o',
+          usage,
+          finishReason: response.choices[0].finish_reason || 'unknown'
+        });
+
         const options = content 
             .split(/Option \d+:/)
             .map(optionText => optionText.trim())
@@ -319,7 +377,7 @@ async function generateSection(req, res, sectionName) {
             });
 
         console.log("Generated options for", sectionName, ":", options);
-        res.json({ options });
+        res.json({ options, requestId });
     } catch (error) {
         console.error("Error generating section with OpenAI:", error);
         res.status(500).json({ error: 'Error generating section with OpenAI' });
