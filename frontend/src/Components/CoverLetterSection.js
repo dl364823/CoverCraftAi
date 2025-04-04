@@ -163,12 +163,14 @@ function CoverLetterSection({
         const cleanedOption = selectedOption.replace(/^Option \d+:\s*/, '');
         setSelectedSections((prevSections) => ({
             ...prevSections,
-            [currentSection]: cleanedOption,
+            [steps[currentStep].name]: cleanedOption,
         }));
     };
 
     const handleNextStep = () => {
         saveSelection();
+        if (!selectedOption) return; // Ensure selection is made before proceeding
+
         if (currentStep < steps.length - 1) {
             setCurrentStep((prevStep) => prevStep + 1);
         } else {
@@ -185,16 +187,16 @@ function CoverLetterSection({
                     ? 'bg-yellow-100 border-2 border-yellow-400 shadow-md scale-[1.02]'
                     : 'bg-white border border-gray-200 hover:border-blue-300 hover:shadow-md'
                 }`}
-            onClick={() => onSelect(item.option, type)}
+            onClick={() => onSelect(item.paragraph, type)}
         >
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center">
                     <input
                         type="radio"
                         name="sectionOption"
-                        value={item.option}
+                        value={item.paragraph}
                         checked={isSelected}
-                        onChange={() => onSelect(item.option, type)}
+                        onChange={() => onSelect(item.paragraph, type)}
                         className="w-4 h-4 text-blue-600"
                     />
                     <span className="ml-3 font-semibold text-lg">Option {index + 1}</span>
@@ -309,7 +311,7 @@ function CoverLetterSection({
                                     key={`new-${index}`}
                                     item={item}
                                     index={index}
-                                    isSelected={selectedOption === item.option}
+                                    isSelected={selectedOption === item.paragraph}
                                     onSelect={handleSelection}
                                     type="new"
                                 />
@@ -329,7 +331,7 @@ function CoverLetterSection({
                                         key={`prev-${index}`}
                                         item={item}
                                         index={index}
-                                        isSelected={selectedOption === item.option}
+                                        isSelected={selectedOption === item.paragraph}
                                         onSelect={handleSelection}
                                         type="previous"
                                     />
