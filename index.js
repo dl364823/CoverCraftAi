@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
+const { execFile } = require('child_process');
 const OpenAI = require('openai');
 const { Document, Packer, Paragraph, TextRun } = require('docx');
 const fs = require('fs');
@@ -14,8 +15,9 @@ const rateLimit = require('express-rate-limit');
 const { createClient } = require('redis');
 const crypto = require('crypto');
 
-//Redis Client Set up 
-
+// ==============================
+// Setup Redis Client
+// ==============================
 const redisClient = createClient({
   url: process.env.REDIS_URL || "redis://localhost:6379"
 });
@@ -24,70 +26,141 @@ redisClient.connect()
   .then(() => console.log("✅ Connected to Redis"))
   .catch((err) => console.error("❌ Redis connection error:", err));
 
+// Helper function: generate cache key using SHA-256 hash
 function generateCacheKey(sectionName, resumeText, jobDescription) {
-const hash = crypto.createHash('sha256').update(resumeText + jobDescription).digest('hex');
-return `covercraft:${sectionName}:${hash}`;
+  const hash = crypto.createHash('sha256').update(resumeText + jobDescription).digest('hex');
+  return `covercraft:${sectionName}:${hash}`;
 }
 
-// MongoDB connect
+// ==============================
+// Setup MongoDB Connection
+// ==============================
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/covercraft', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 }).then(() => console.log('✅ Connected to MongoDB'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
+// ==============================
+// Initialize Express App and Middleware
+// ==============================
 const app = express();
 const upload = multer();
-
 const corsOptions = {
     origin: ['http://localhost:3001', 'https://covercraftai-frontend.onrender.com'],
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 };
-
 app.use(cors(corsOptions));
 app.use(express.json());
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
-
-console.log("API Key:", process.env.OPENAI_API_KEY);
-
+// Rate limiter to avoid too many requests
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again after 15 minutes'
 });
-
 app.use(limiter);
 
+// ==============================
+// OpenAI Client Setup
+// ==============================
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+});
+console.log("API Key:", process.env.OPENAI_API_KEY);
+
+// ==============================
+// In-memory vector database for RAG (for demo purposes)
+// ==============================
+let vectorDB = []; // This simulates a vector database
+
+// Helper: Calculate cosine similarity between two vectors
+function cosineSimilarity(vecA, vecB) {
+  const dotProduct = vecA.reduce((sum, a, idx) => sum + a * vecB[idx], 0);
+  const normA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
+  const normB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
+  return dotProduct / (normA * normB);
+}
+
+// ==============================
+// Endpoints
+// ==============================
+
+// Basic status endpoint
 app.get('/', (req, res) => {
     res.send('Server is running');
 });
 
-// Step1: Resume Upload and Parse [Checked]
+// ------------------------------
+// 1. Resume Upload and Parse Endpoint
+// ------------------------------
 app.post('/upload-resume', upload.single('resume'), async (req, res) => {
     console.log("Received file:", req.file);
     try {
-        const data = await pdfParse(req.file.buffer);
-        console.log("Parsed resume text:", data.text);
-        res.json({ text: data.text });
+        // Define the temp directory path
+        const tempDir = path.join(__dirname, 'temp');
+        
+        // Check if the temp directory exists, if not, create it
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir);
+        }
+
+        // Save file temporarily for processing by Python unstructured script
+        const tempFilePath = path.join(tempDir, req.file.originalname);
+        fs.writeFileSync(tempFilePath, req.file.buffer);
+        
+        process.env.KMP_DUPLICATE_LIB_OK = 'TRUE';
+        process.env.MKL_VERBOSE = '0';
+        execFile('python', ['extract_pdf.py', tempFilePath], (error, stdout, stderr) => {
+            // Delete temporary file
+            fs.unlinkSync(tempFilePath);
+            
+            if (error) {
+                console.error("Python script error:", error);
+                return res.status(500).json({ error: 'Error parsing PDF with unstructured (Python)' });
+            }
+            try {
+                // Filter out non-JSON lines
+                const jsonOutput = stdout.split('\n').find(line => {
+                    try {
+                        JSON.parse(line);
+                        return true;
+                    } catch {
+                        return false;
+                    }
+                });
+
+                if (!jsonOutput) {
+                    console.error("Failed to parse JSON output from Python");
+                    return res.status(500).json({ error: 'Invalid JSON output from Python' });
+                }
+
+                const result = JSON.parse(jsonOutput);
+                console.log("Parsed resume text:", result.text);
+                res.json(result);
+            } catch (err) {
+                console.error("Failed to parse JSON output from Python:", err);
+                res.status(500).json({ error: 'Error parsing output from unstructured (Python)' });
+            }
+        });
     } catch (error) {
-        console.error("Error parsing PDF:", error);
-        res.status(500).json({ error: 'Error parsing PDF' });
+        console.error("Error handling file:", error);
+        res.status(500).json({ error: 'Error processing PDF file' });
     }
 });
 
-// Step2: Job Description + Skill Matching Endpoint [Received] []    
+// ------------------------------
+// 2. Job Description + Skill Matching Endpoint
+// ------------------------------
 app.post('/match-skills', async (req, res) => {
     const { resumeText, jobDescription } = req.body;
     console.log("Received resume text for matching:", resumeText);
     console.log("Received job description for matching:", jobDescription);
   
     try {
-        // Modified prompt for JSON output
+        // Create prompt that instructs to output a valid JSON with a "matches" array
         const prompt = `
         You are an expert job skills matcher. Your task is to match skills in the following resume with the requirements in the job description.
         
@@ -124,7 +197,8 @@ app.post('/match-skills', async (req, res) => {
         const jsonResponse = response.choices[0].message.content.trim();
         console.log("JSON Response:", jsonResponse);
         
-        const cleanedJsonResponse = jsonResponse.replace(/```json|```/g, '');
+        // Clean the response (remove any code block markers)
+        const cleanedJsonResponse = jsonResponse.replace(/```json|```/g, '').trim();
         let parsedOutput;
         try {
             parsedOutput = JSON.parse(cleanedJsonResponse);
@@ -165,11 +239,15 @@ app.post('/match-skills', async (req, res) => {
         console.error("Error matching skills with OpenAI:", error);
         res.status(500).json({ error: 'Error matching skills with OpenAI' });
     }
-  });
-  
+});
 
-// Step3: Cover Letter Section
-// Create the Function
+// ------------------------------
+// 3. Cover Letter Section Endpoints
+// ------------------------------
+
+// Function to create prompt for each cover letter section.
+// It instructs the model to output a valid JSON object with a key "options" containing an array
+// where each element has "paragraph" and "explanation" keys.
 const createPrompt = (sectionName, jobDescription, resumeText) => {
     console.log("Received job description for section:", jobDescription); 
     console.log("Received resume text for section:", resumeText);
@@ -252,7 +330,7 @@ const createPrompt = (sectionName, jobDescription, resumeText) => {
     }
 };
 
-// Helper function to clean and parse JSON
+// Helper function to clean and parse JSON response (used for cover letter sections)
 function parseJSONResponse(responseText) {
   // Remove any triple backticks and extra markers (e.g., ``` or ```json)
   const cleaned = responseText.replace(/```(json)?/gi, '').trim();
@@ -268,24 +346,7 @@ function parseJSONResponse(responseText) {
   }
 }
 
-// Define endpoints for each section
-app.post('/generate-open-hook', async (req, res) => {
-    await generateSection(req, res, 'Open Hook');
-});
-
-app.post('/generate-key-experiences', async (req, res) => {
-    await generateSection(req, res, 'Key Experiences');
-});
-
-app.post('/generate-personal-values', async (req, res) => {
-    await generateSection(req, res, 'Personal Values');
-});
-
-app.post('/generate-closing-statement', async (req, res) => {
-    await generateSection(req, res, 'Closing Statement');
-});
-
-// Generic function to handle section generation
+// Generic function to handle section generation with caching.
 const activeRequests = new Set();
 
 async function generateSection(req, res, sectionName) {
@@ -299,18 +360,17 @@ async function generateSection(req, res, sectionName) {
   activeRequests.add(requestKey);
   
   try {
-    // Generate a cache key based on inputs
+    // Generate a cache key based on inputs for caching results
     const cacheKey = generateCacheKey(sectionName, resumeText, jobDescription);
     
     // Check if a cached response exists
     const cachedData = await redisClient.get(cacheKey);
     if (cachedData) {
-        console.log(`Cache hit for ${cacheKey}`);
-        // Return the cached response immediately
-        return res.json(JSON.parse(cachedData));
+      console.log(`Cache hit for ${cacheKey}`);
+      return res.json(JSON.parse(cachedData));
     }
 
-    // If no cached data, create the prompt and generate response with OpenAI
+    // Generate the prompt for the specified section
     const prompt = createPrompt(sectionName, jobDescription, resumeText);
     console.log(`Generating ${sectionName} with prompt...`);
 
@@ -338,7 +398,7 @@ async function generateSection(req, res, sectionName) {
     const rawResponse = response.choices[0].message.content.trim();
     console.log("Raw JSON Response:", rawResponse);
 
-    // Use the helper function to clean and parse the response
+    // Clean and parse the JSON response
     const parsedOutput = parseJSONResponse(rawResponse);
     const options = parsedOutput.options;
 
@@ -350,6 +410,7 @@ async function generateSection(req, res, sectionName) {
       total_tokens: null,
     };
 
+    // Log the generated section to MongoDB
     await PromptLog.create({
       requestId,
       timestamp,
@@ -359,7 +420,7 @@ async function generateSection(req, res, sectionName) {
         jobDesc: jobDescription,
       },
       prompt,
-      output: rawResponse, // or store cleaned version if preferred: cleaned
+      output: rawResponse,
       model: response.model || 'gpt-4o',
       usage,
       finishReason: response.choices[0].finish_reason || 'unknown'
@@ -369,7 +430,7 @@ async function generateSection(req, res, sectionName) {
     const finalResponse = { options, requestId };
     console.log("Generated options for", sectionName, ":", options);
     
-    // Store the final response in Redis with a TTL (e.g., 1 hour)
+    // Cache the final response in Redis with a TTL of 1 hour (3600 seconds)
     await redisClient.set(cacheKey, JSON.stringify(finalResponse), { EX: 3600 });
     
     res.json(finalResponse);
@@ -381,55 +442,154 @@ async function generateSection(req, res, sectionName) {
   }
 }
 
-/*//Step4: Personal Details Extraction 
-app.post('/extract-details', async (req, res) => {
-    const { resumeText } = req.body;
-    console.log("Received resume text for details extraction.");
+// ------------------------------
+// 4. Embedding Endpoint
+// ------------------------------
+app.post('/generate-embedding', async (req, res) => {
+  const { text } = req.body;
+  try {
+    const vector = await generateEmbedding(text);
+    res.json({ embedding: vector });
+  } catch (error) {
+    res.status(500).json({ error: 'Error generating embedding' });
+  }
+});
 
-    try {
-        const text = resumeText;
+// Function to generate embeddings using OpenAI's embedding API
+async function generateEmbedding(paragraphText) {
+  try {
+    const embeddingResponse = await openai.embeddings.create({
+      model: 'text-embedding-ada-002',
+      input: paragraphText,
+    });
+    const vector = embeddingResponse.data.data[0].embedding;
+    return vector;
+  } catch (error) {
+    console.error("Error generating embedding:", error);
+    throw error;
+  }
+}
 
-        // Extract name (first line as an example)
-        const lines = text.split('\n');
-        const name = lines.length > 0 ? lines[0].trim() : '[Your Name]';
+// ------------------------------
+// 5. RAG: Process Document Endpoint
+// ------------------------------
+// This endpoint takes parsed text (from an uploaded document), splits it into paragraphs,
+// generates embeddings for each, and stores them in an in-memory vector database.
+app.post('/process-document', async (req, res) => {
+  const { text } = req.body; // Expecting plain text from the uploaded document
+  try {
+    // Split text into paragraphs using double newlines as delimiters
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    console.log("Parsed paragraphs:", paragraphs);
 
-        // Extract email
-        const emailMatch = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
-        const email = emailMatch ? emailMatch[0] : '[Your Email]';
+    // Generate embeddings for each paragraph
+    const embeddings = await Promise.all(
+      paragraphs.map(async (para) => {
+        try {
+          const vector = await generateEmbedding(para);
+          return { text: para, vector };
+        } catch (err) {
+          console.error("Error generating embedding for paragraph:", err);
+          return null;
+        }
+      })
+    );
+    // Filter out any null results and store in vectorDB
+    vectorDB = embeddings.filter(item => item !== null);
+    console.log("Embeddings stored in vectorDB:", vectorDB);
+    res.json({ message: 'Document processed and embeddings stored', count: vectorDB.length });
+  } catch (error) {
+    console.error("Error processing document:", error);
+    res.status(500).json({ error: 'Error processing document' });
+  }
+});
 
-        res.json({ name, email });
-    } catch (error) {
-        console.error("Error extracting details from resume:", error);
-        res.status(500).json({ error: 'Error extracting details from resume' });
+// ------------------------------
+// 6. RAG: Query Document Endpoint
+// ------------------------------
+// This endpoint receives a user query, generates an embedding for the query,
+// retrieves the most relevant paragraphs from vectorDB, and then calls OpenAI
+// with the retrieved context to generate a final answer.
+app.post('/query-document', async (req, res) => {
+  const { query } = req.body;
+  if (!query) return res.status(400).json({ error: 'Query text is required' });
+
+  try {
+    // Generate embedding for the user query
+    const queryVector = await generateEmbedding(query);
+    
+    // Calculate cosine similarity for each paragraph in vectorDB
+    const scored = vectorDB.map(item => ({
+      text: item.text,
+      vector: item.vector,
+      similarity: cosineSimilarity(queryVector, item.vector)
+    }));
+    // Sort by similarity in descending order
+    scored.sort((a, b) => b.similarity - a.similarity);
+    // Retrieve the top 3 matching paragraphs
+    const topMatches = scored.slice(0, 3);
+    console.log("Top matching paragraphs:", topMatches);
+
+    // Concatenate the retrieved paragraphs to form the context
+    const context = topMatches.map(item => item.text).join("\n\n");
+
+    // Create final prompt that includes context and the user query
+    const finalPrompt = `
+Based on the following context extracted from the document:
+
+${context}
+
+And the query:
+${query}
+
+Please generate a detailed answer that incorporates the relevant information.
+    `;
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: "system", content: "You are an expert assistant." },
+        { role: "user", content: finalPrompt }
+      ],
+      max_tokens: 500,
+      temperature: 0.2
+    });
+    if (!response.choices || response.choices.length === 0) {
+      throw new Error("No choices returned in OpenAI response");
     }
-});*/
+    const finalAnswer = response.choices[0].message.content.trim();
+    console.log("Final generated answer:", finalAnswer);
+    res.json({ finalAnswer, topMatches });
+  } catch (error) {
+    console.error("Error processing query:", error);
+    res.status(500).json({ error: 'Error processing query' });
+  }
+});
 
-//Step5: Word Document Generation 
+// ------------------------------
+// 7. Word Document Generation Endpoint
+// ------------------------------
 app.post('/generate-word', async(req, res) => {
     const { coverLetter } = req.body;
-
     if (!coverLetter) {
         return res.status(400).json({ error: 'Cover letter content is required' });
     }
-    try{
-    
+    try {
         console.log("Raw Cover Letter Content:", coverLetter);
         
+        // Clean HTML tags and non-breaking spaces
         const cleanedContent = coverLetter
-            .replace(/<[^>]*>/g, '') // Remove all HTML tags
-            .replace(/\&nbsp;/g, ' ') // Replace HTML non-breaking spaces
+            .replace(/<[^>]*>/g, '')
+            .replace(/\&nbsp;/g, ' ')
             .trim();
-
         console.log("Cleaned Content:", cleanedContent);
-
+        
+        // Split content into paragraphs
         const paragraphs = cleanedContent.split(/\n\n+/).map(paragraph => paragraph.trim());
-
         const formattedParagraphs = paragraphs.map(paragraph => new Paragraph({
             text: paragraph,
-            spacing: { after: 200 }, // Add spacing between paragraphs
+            spacing: { after: 200 },
             style: "Normal",
         }));
-        
         console.log("Generated Paragraphs:", formattedParagraphs);
         
         const doc = new Document({
@@ -438,15 +598,13 @@ app.post('/generate-word', async(req, res) => {
             description: "A custom cover letter generated for job application",
             sections: [
                 {
-                    properties: {}, 
+                    properties: {},
                     children: formattedParagraphs,
                 },
             ],
         });
-
-
+        
         const buffer = await Packer.toBuffer(doc);
-        // Set headers and send the document
         res.setHeader(
             'Content-Disposition',
             'attachment; filename=CoverLetter.docx'
@@ -462,21 +620,8 @@ app.post('/generate-word', async(req, res) => {
     }
 });
 
-/*//Step6: User Feedback Collection 
-app.post('/submit-feedback', (req, res) => {
-    const { rating, comments } = req.body;
-
-    // Save feedback to database (or a JSON file for simplicity)
-    const feedback = { rating, comments, date: new Date() };
-    // Assuming a MongoDB setup, save feedback to a 'feedback' collection
-    db.collection('feedback').insertOne(feedback, (error, result) => {
-        if (error) {
-            return res.status(500).json({ error: 'Error saving feedback' });
-        }
-        res.json({ message: 'Feedback submitted successfully' });
-    });
-});
-*/
-//Server listen
+// ==============================
+// Server Listening
+// ==============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
