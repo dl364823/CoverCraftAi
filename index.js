@@ -235,6 +235,22 @@ const createPrompt = (sectionName, jobDescription, resumeText) => {
     }
 };
 
+// Helper function to clean and parse JSON
+function parseJSONResponse(responseText) {
+  // Remove any triple backticks and extra markers (e.g., ``` or ```json)
+  const cleaned = responseText.replace(/```(json)?/gi, '').trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (!parsed.options || !Array.isArray(parsed.options)) {
+      throw new Error("Parsed JSON does not contain a valid 'options' array.");
+    }
+    return parsed;
+  } catch (err) {
+    console.error("Failed to parse JSON response. Raw response:", responseText);
+    throw new Error("Failed to parse JSON response: " + err.message);
+  }
+}
+
 // Define endpoints for each section
 app.post('/generate-open-hook', async (req, res) => {
     await generateSection(req, res, 'Open Hook');
@@ -256,83 +272,78 @@ app.post('/generate-closing-statement', async (req, res) => {
 const activeRequests = new Set();
 
 async function generateSection(req, res, sectionName) {
-    const {jobDescription, resumeText } = req.body;
-    const requestKey = `${jobDescription}_${resumeText}_${sectionName}`;
-    // Prevent duplicate processing
-    if (activeRequests.has(requestKey)) {
-        return res.status(429).json({ error: 'Request already in progress' });
-    }
-    activeRequests.add(requestKey);
-   
-    
-    try {
-        const prompt = createPrompt(sectionName, jobDescription, resumeText);
-        console.log(`Generating ${sectionName} with prompt...`);
-        
-        const response = await openai.chat.completions.create({
-            model: 'gpt-4o',
-            messages:[
-                {role: "system",content: "You are an expert cover letter writer. Your task is to generate high-quality, personalized cover letter sections based on the provided job description and resume." },
-                {role: "user",content: prompt }
-            ],
-            max_tokens: 2000,
-            temperature: 0.1
-        });
+  const { jobDescription, resumeText } = req.body;
+  const requestKey = `${jobDescription}_${resumeText}_${sectionName}`;
+  
+  // Prevent duplicate processing
+  if (activeRequests.has(requestKey)) {
+    return res.status(429).json({ error: 'Request already in progress' });
+  }
+  activeRequests.add(requestKey);
+  
+  try {
+    const prompt = createPrompt(sectionName, jobDescription, resumeText);
+    console.log(`Generating ${sectionName} with prompt...`);
 
-        console.log("OpenAI API response:", response);
-
-        if (!response.choices || response.choices.length === 0) {
-            throw new Error("No choices returned in OpenAI response");
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert cover letter writer. Your task is to generate high-quality, personalized cover letter sections based on the provided job description and resume."
+        },
+        {
+          role: "user",
+          content: prompt
         }
-        const jsonResponse = response.choices[0].message.content.trim()
-        console.log("JSON Response:", jsonResponse);
-        
-        const cleanedJsonResponse = jsonResponse.replace(/```json|```/g, '');
+      ],
+      max_tokens: 2000,
+      temperature: 0.1
+    });
 
-        let parsedOutput;
-        try {
-            parsedOutput = JSON.parse(cleanedJsonResponse);
-        } catch (err) {
-            console.error("Failed to parse JSON response:", err);
-            throw new Error("Failed to parse JSON response: " + err.message);
-        }
+    console.log("OpenAI API response:", response);
 
-        const options = parsedOutput.options;
-        if (!parsedOutput.options || !Array.isArray(parsedOutput.options)) {
-            throw new Error("Invalid JSON format: 'options' key is missing or not an array.");
-          }
-        const requestId = uuidv4();
-        const timestamp = new Date();
-
-        const usage = response.usage || {
-          prompt_tokens: null,
-          completion_tokens: null,
-          total_tokens: null,
-        };
-
-        await PromptLog.create({
-          requestId,
-          timestamp,
-          style: sectionName, 
-          inputs: {
-            resume: resumeText,
-            jobDesc: jobDescription,
-          },
-          prompt, 
-          output: cleanedJsonResponse,
-          model: response.model || 'gpt-4o',
-          usage,
-          finishReason: response.choices[0].finish_reason || 'unknown'
-        });
-
-        console.log("Generated options for", sectionName, ":", options);
-        res.json({ options, requestId });
-    } catch (error) {
-        console.error("Error generating section with OpenAI:", error);
-        res.status(500).json({ error: 'Error generating section with OpenAI' });
-    }finally {
-        activeRequests.delete(requestKey);
+    if (!response.choices || response.choices.length === 0) {
+      throw new Error("No choices returned in OpenAI response");
     }
+    const rawResponse = response.choices[0].message.content.trim();
+    console.log("Raw JSON Response:", rawResponse);
+
+    // Use the helper function to clean and parse the response
+    const parsedOutput = parseJSONResponse(rawResponse);
+    const options = parsedOutput.options;
+
+    const requestId = uuidv4();
+    const timestamp = new Date();
+    const usage = response.usage || {
+      prompt_tokens: null,
+      completion_tokens: null,
+      total_tokens: null,
+    };
+
+    await PromptLog.create({
+      requestId,
+      timestamp,
+      style: sectionName,
+      inputs: {
+        resume: resumeText,
+        jobDesc: jobDescription,
+      },
+      prompt,
+      output: rawResponse, // or store cleaned version if preferred: cleaned
+      model: response.model || 'gpt-4o',
+      usage,
+      finishReason: response.choices[0].finish_reason || 'unknown'
+    });
+
+    console.log("Generated options for", sectionName, ":", options);
+    res.json({ options, requestId });
+  } catch (error) {
+    console.error("Error generating section with OpenAI:", error);
+    res.status(500).json({ error: 'Error generating section with OpenAI' });
+  } finally {
+    activeRequests.delete(requestKey);
+  }
 }
 
 /*//Step4: Personal Details Extraction 
@@ -431,7 +442,6 @@ app.post('/submit-feedback', (req, res) => {
     });
 });
 */
-
 //Server listen
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Navigate, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { debounce } from 'lodash';
 
 function CoverLetterSection({
     resumeText,
@@ -42,37 +43,10 @@ function CoverLetterSection({
         },
     ];
 
-    useEffect(() => {
-        if (resumeText && jobDescription) {
-            // 清空状态
-            setOptions([]);
-            setPreviousOptions([]);
-            setSelectedOption('');
-            setError('');
-            // 检查是否有历史记录
-            const currentStepName = steps[currentStep].name;
-            if (sectionHistory[currentStepName]) {
-                setOptions(sectionHistory[currentStepName].current || []);
-                setPreviousOptions(sectionHistory[currentStepName].previous || []);
-                setSelectedOption(sectionHistory[currentStepName].selected || '');
-            } else {
-                // 如果没有历史记录，生成新的选项
-                generateSection();
-            }
-        }
-    }, [currentStep, resumeText, jobDescription]);
-
-    if (!resumeText || !jobDescription) {
-        alert('Please upload your resume and enter the job description before proceeding.');
-        return <Navigate to="/" replace />;
-    }
-
-    const generateSection = async () => {
+    const generateSection = debounce(async () => {
         const current = steps[currentStep];
         setLoading(true);
         setError('');
-        setCurrentSection(current.name);
-        setPreviousOptions([]);
         console.log(`Generating options for section: ${current.name}`);
 
         try {
@@ -101,7 +75,32 @@ function CoverLetterSection({
         } finally {
             setLoading(false);
         }
-    };
+    }, 1000);
+
+    useEffect(() => {
+        if (resumeText && jobDescription) {
+            // 清空状态
+            setOptions([]);
+            setPreviousOptions([]);
+            setSelectedOption('');
+            setError('');
+            // 检查是否有历史记录
+            const currentStepName = steps[currentStep].name;
+            if (sectionHistory[currentStepName]) {
+                setOptions(sectionHistory[currentStepName].current || []);
+                setPreviousOptions(sectionHistory[currentStepName].previous || []);
+                setSelectedOption(sectionHistory[currentStepName].selected || '');
+            } else {
+                // 如果没有历史记录，生成新的选项
+                generateSection();
+            }
+        }
+    }, [currentStep, resumeText, jobDescription]);
+
+    if (!resumeText || !jobDescription) {
+        alert('Please upload your resume and enter the job description before proceeding.');
+        return <Navigate to="/" replace />;
+    }
 
     const handleSelection = (optionText, source) => {
         setSelectedOption(optionText);
