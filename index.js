@@ -11,6 +11,23 @@ const mongoose = require('mongoose');
 const PromptLog = require('./models/PromptLog');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
+const { createClient } = require('redis');
+const crypto = require('crypto');
+
+//Redis Client Set up 
+
+const redisClient = createClient({
+  url: process.env.REDIS_URL || "redis://localhost:6379"
+});
+
+redisClient.connect()
+  .then(() => console.log("✅ Connected to Redis"))
+  .catch((err) => console.error("❌ Redis connection error:", err));
+
+function generateCacheKey(sectionName, resumeText, jobDescription) {
+const hash = crypto.createHash('sha256').update(resumeText + jobDescription).digest('hex');
+return `covercraft:${sectionName}:${hash}`;
+}
 
 // MongoDB connect
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/covercraft', {
@@ -282,6 +299,18 @@ async function generateSection(req, res, sectionName) {
   activeRequests.add(requestKey);
   
   try {
+    // Generate a cache key based on inputs
+    const cacheKey = generateCacheKey(sectionName, resumeText, jobDescription);
+    
+    // Check if a cached response exists
+    const cachedData = await redisClient.get(cacheKey);
+    if (cachedData) {
+        console.log(`Cache hit for ${cacheKey}`);
+        // Return the cached response immediately
+        return res.json(JSON.parse(cachedData));
+    }
+
+    // If no cached data, create the prompt and generate response with OpenAI
     const prompt = createPrompt(sectionName, jobDescription, resumeText);
     console.log(`Generating ${sectionName} with prompt...`);
 
@@ -336,8 +365,14 @@ async function generateSection(req, res, sectionName) {
       finishReason: response.choices[0].finish_reason || 'unknown'
     });
 
+    // Prepare final response object
+    const finalResponse = { options, requestId };
     console.log("Generated options for", sectionName, ":", options);
-    res.json({ options, requestId });
+    
+    // Store the final response in Redis with a TTL (e.g., 1 hour)
+    await redisClient.set(cacheKey, JSON.stringify(finalResponse), { EX: 3600 });
+    
+    res.json(finalResponse);
   } catch (error) {
     console.error("Error generating section with OpenAI:", error);
     res.status(500).json({ error: 'Error generating section with OpenAI' });
