@@ -55,6 +55,8 @@ function CoverLetterSection({
                 resumeText,
             });
 
+            console.log('API Response:', response.data);
+
             if (response.data && Array.isArray(response.data.options)) {
                 setOptions(response.data.options);
                 setSectionHistory(prev => ({
@@ -205,10 +207,10 @@ function CoverLetterSection({
                     {type === 'new' ? 'New' : 'Previous'}
                 </span>
             </div>
-            <p className="mt-3 text-gray-700">{item.option}</p>
+            <p className="mt-3 text-gray-700">{item.paragraph}</p>
             <div className="mt-3 bg-gray-50 p-3 rounded">
                 <p className="text-sm text-gray-600 italic">
-                    <span className="font-medium">Why Choose This:</span> {item.reason}
+                    <span className="font-medium">Why Choose This:</span> {item.explanation}
                 </p>
             </div>
         </div>
