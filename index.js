@@ -346,6 +346,24 @@ function parseJSONResponse(responseText) {
   }
 }
 
+// Define endpoints for each section
+app.post('/generate-open-hook', async (req, res) => {
+    await generateSection(req, res, 'Open Hook');
+});
+
+app.post('/generate-key-experiences', async (req, res) => {
+    await generateSection(req, res, 'Key Experiences');
+});
+
+app.post('/generate-personal-values', async (req, res) => {
+    await generateSection(req, res, 'Personal Values');
+});
+
+app.post('/generate-closing-statement', async (req, res) => {
+    await generateSection(req, res, 'Closing Statement');
+});
+
+
 // Generic function to handle section generation with caching.
 const activeRequests = new Set();
 
@@ -568,6 +586,29 @@ Please generate a detailed answer that incorporates the relevant information.
 // ------------------------------
 // 7. Word Document Generation Endpoint
 // ------------------------------
+/*Personal Details Extraction 
+app.post('/extract-details', async (req, res) => {
+    const { resumeText } = req.body;
+    console.log("Received resume text for details extraction.");
+
+    try {
+        const text = resumeText;
+
+        // Extract name (first line as an example)
+        const lines = text.split('\n');
+        const name = lines.length > 0 ? lines[0].trim() : '[Your Name]';
+
+        // Extract email
+        const emailMatch = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
+        const email = emailMatch ? emailMatch[0] : '[Your Email]';
+
+        res.json({ name, email });
+    } catch (error) {
+        console.error("Error extracting details from resume:", error);
+        res.status(500).json({ error: 'Error extracting details from resume' });
+    }
+});*/
+
 app.post('/generate-word', async(req, res) => {
     const { coverLetter } = req.body;
     if (!coverLetter) {
@@ -619,6 +660,22 @@ app.post('/generate-word', async(req, res) => {
       res.status(500).json({ error: 'Error generating Word document' });
     }
 });
+
+/*//Step6: User Feedback Collection 
+app.post('/submit-feedback', (req, res) => {
+    const { rating, comments } = req.body;
+
+    // Save feedback to database (or a JSON file for simplicity)
+    const feedback = { rating, comments, date: new Date() };
+    // Assuming a MongoDB setup, save feedback to a 'feedback' collection
+    db.collection('feedback').insertOne(feedback, (error, result) => {
+        if (error) {
+            return res.status(500).json({ error: 'Error saving feedback' });
+        }
+        res.json({ message: 'Feedback submitted successfully' });
+    });
+});
+*/
 
 // ==============================
 // Server Listening
