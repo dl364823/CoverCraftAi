@@ -9,7 +9,7 @@ function QueryForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const result = await axios.post('http://localhost:8000/query', { query });
+      const result = await axios.post('http://localhost:3000/query-document', { query });
       setResponse(result.data);
       setError(null);
     } catch (err) {

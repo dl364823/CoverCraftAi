@@ -54,7 +54,7 @@ class QueryRequest(BaseModel):
 async def health():
     return {"status": "ok"}
 
-@app.post("/query")
+@app.post("/query-document")
 async def query_rag(req: QueryRequest):
     try:
         result = qa_chain({"query": req.query})
@@ -69,7 +69,8 @@ async def query_rag(req: QueryRequest):
 async def process_document(req: DocumentRequest):
     try:
         paragraphs = req.text.split("\n\n")
-        embeddings = [embedding_model.embed(para) for para in paragraphs]
+        paragraphs = [p.strip() for p in paragraphs if p.strip()]
+        embeddings = embedding_model.embed_documents(paragraphs)
         vectorstore.add_vectors(embeddings, paragraphs)
         return {"message": "Document processed and embeddings stored", "count": len(embeddings)}
     except Exception as e:

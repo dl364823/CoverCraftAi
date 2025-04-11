@@ -463,46 +463,16 @@ async function generateSection(req, res, sectionName) {
   }
 }
 
-// ------------------------------
-// 4. Embedding Endpoint
-// ------------------------------
-app.post('/generate-embedding', async (req, res) => {
-  const { text } = req.body;
-  try {
-    const vector = await generateEmbedding(text);
-    res.json({ embedding: vector });
-  } catch (error) {
-    res.status(500).json({ error: 'Error generating embedding' });
-  }
-});
 
-// Function to generate embeddings using OpenAI's embedding API
 async function generateEmbedding(text) {
     if (!text) {
         console.error("Input text is undefined or null.");
         return null; // or handle the error as appropriate
     }
 
-    try {
-        const embeddingResponse = await openai.embeddings.create({
-            model: 'text-embedding-ada-002',
-            input: text,
-        });
-
-        if (!embeddingResponse || !embeddingResponse.data || !embeddingResponse.data[0]) {
-            console.error("Invalid response from OpenAI embedding API.");
-            return null; // or handle the error as appropriate
-        }
-
-        return embeddingResponse.data[0].embedding;
-    } catch (error) {
-        console.error("Error generating embedding:", error);
-        return null; // or handle the error as appropriate
-    }
-}
-
 // ------------------------------
-// 5. RAG: Process Document Endpoint
+// 4. RAG: Process Document Endpoint (Node → Python proxy)
+// This route extracts paragraphs from raw text, then delegates embedding + storage to Python RAG service.    
 // ------------------------------
 app.post('/process-document', async (req, res) => {
   const { text } = req.body; // Expecting plain text from the uploaded document
@@ -510,32 +480,13 @@ app.post('/process-document', async (req, res) => {
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     console.log("Parsed paragraphs:", paragraphs);
 
-    const embeddings = await Promise.all(paragraphs.map(async para => {
-      try {
-        const vector = await generateEmbedding(para);
-        return { text: para, vector };
-      } catch (err) {
-        console.error("Error generating embedding for paragraph:", err);
-        return null;
-      }
-    }));
-
-    const validEmbeddings = embeddings.filter(item => item !== null);
-    await vectorStore.addVectors(validEmbeddings.map(e => e.vector), validEmbeddings.map(e => e.text));
-    console.log("Embeddings stored in PostgreSQL:", validEmbeddings);
-
-    const queryText = 'What is the capital of France?';
-    // Call the Python microservice
-    const response = await axios.post('http://localhost:8000/query', {
-      query: queryText 
-    });
-
+    const response = await axios.post('http://localhost:8000/process-document', { text });
     console.log('Response from Python service:', response.data);
 
     res.json({
       message: 'Document processed and embeddings stored',
-      count: validEmbeddings.length,
-      pythonServiceResponse: response.data // Include the response from the Python service
+      count: paragraphs.length,
+      pythonServiceResponse: response.data
     });
   } catch (error) {
     console.error("Error processing document:", error);
@@ -544,44 +495,22 @@ app.post('/process-document', async (req, res) => {
 });
 
 // ------------------------------
-// 6. RAG: Query Document Endpoint
+// 6. RAG: Query Document Endpoint (via Python microservice)
 // ------------------------------
 app.post('/query-document', async (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ error: 'Query text is required' });
 
   try {
-    const queryVector = await generateEmbedding(query);
-    const topMatches = await vectorStore.similaritySearch(queryVector, 3); // Retrieve top 3 matches
-    console.log("Top matching paragraphs:", topMatches);
-
-    const context = topMatches.map(item => item.text).join("\n\n");
-    const finalPrompt = `
-Based on the following context extracted from the document:
-
-${context}
-
-And the query:
-${query}
-Please generate a detailed answer that incorporates the relevant information.`;
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: "system", content: "You are an expert assistant." },
-        { role: "user", content: finalPrompt }
-      ],
-      max_tokens: 500,
-      temperature: 0.2
+    const response = await axios.post('http://localhost:8000/query-document', { query });
+    console.log('Response from Python service:', response.data);
+    res.json({
+      message: 'Query documented',
+      pythonServiceResponse: response.data
     });
-    if (!response.choices || response.choices.length === 0) {
-      throw new Error("No choices returned in OpenAI response");
-    }
-    const finalAnswer = response.choices[0].message.content.trim();
-    console.log("Final generated answer:", finalAnswer);
-    res.json({ finalAnswer, topMatches });
   } catch (error) {
-    console.error("Error processing query:", error);
-    res.status(500).json({ error: 'Error processing query' });
+    console.error("Error querying document:", error.response?.data || error.message);
+    res.status(500).json({ error: 'Error querying document' });
   }
 });
 
