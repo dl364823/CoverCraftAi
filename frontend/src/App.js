@@ -6,6 +6,7 @@ import CoverLetterSection from './Components/CoverLetterSection';
 import DownloadCoverLetter from './Components/DownloadCoverLetter';
 import SideBar from './Components/SideBar';
 import LandingPage from './Components/LandingPage';
+import QueryForm from './Components/QueryForm';
 
 function App() {
   const [resumeText, setResumeText] = useState('');
@@ -76,6 +77,10 @@ function App() {
                             resumeText={resumeText}
                           />
                         }
+                      />
+                      <Route
+                        path="/query"
+                        element={<QueryForm />}
                       />
                     </Routes>
                   </div>

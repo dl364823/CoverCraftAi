@@ -14,6 +14,9 @@ const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { createClient } = require('redis');
 const crypto = require('crypto');
+const { Client } = require('pg');
+const { PgVectorStore } = require('langchain/vectorstores/pg');
+const axios = require('axios');
 
 // ==============================
 // Setup Redis Client
@@ -72,17 +75,17 @@ const openai = new OpenAI({
 console.log("API Key:", process.env.OPENAI_API_KEY);
 
 // ==============================
-// In-memory vector database for RAG (for demo purposes)
+// Setup PostgreSQL Connection
 // ==============================
-let vectorDB = []; // This simulates a vector database
+const pgClient = new Client({
+  connectionString: process.env.PGVECTOR_URL, // Ensure this is set in your environment
+});
+pgClient.connect()
+  .then(() => console.log('✅ Connected to PostgreSQL'))
+  .catch(err => console.error('❌ PostgreSQL connection error:', err));
 
-// Helper: Calculate cosine similarity between two vectors
-function cosineSimilarity(vecA, vecB) {
-  const dotProduct = vecA.reduce((sum, a, idx) => sum + a * vecB[idx], 0);
-  const normA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
-  const normB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
-  return dotProduct / (normA * normB);
-}
+// Initialize PgVectorStore
+const vectorStore = new PgVectorStore(pgClient, 'embeddings'); // 'embeddings' is the table name
 
 // ==============================
 // Endpoints
@@ -474,48 +477,66 @@ app.post('/generate-embedding', async (req, res) => {
 });
 
 // Function to generate embeddings using OpenAI's embedding API
-async function generateEmbedding(paragraphText) {
-  try {
-    const embeddingResponse = await openai.embeddings.create({
-      model: 'text-embedding-ada-002',
-      input: paragraphText,
-    });
-    const vector = embeddingResponse.data.data[0].embedding;
-    return vector;
-  } catch (error) {
-    console.error("Error generating embedding:", error);
-    throw error;
-  }
+async function generateEmbedding(text) {
+    if (!text) {
+        console.error("Input text is undefined or null.");
+        return null; // or handle the error as appropriate
+    }
+
+    try {
+        const embeddingResponse = await openai.embeddings.create({
+            model: 'text-embedding-ada-002',
+            input: text,
+        });
+
+        if (!embeddingResponse || !embeddingResponse.data || !embeddingResponse.data[0]) {
+            console.error("Invalid response from OpenAI embedding API.");
+            return null; // or handle the error as appropriate
+        }
+
+        return embeddingResponse.data[0].embedding;
+    } catch (error) {
+        console.error("Error generating embedding:", error);
+        return null; // or handle the error as appropriate
+    }
 }
 
 // ------------------------------
 // 5. RAG: Process Document Endpoint
 // ------------------------------
-// This endpoint takes parsed text (from an uploaded document), splits it into paragraphs,
-// generates embeddings for each, and stores them in an in-memory vector database.
 app.post('/process-document', async (req, res) => {
   const { text } = req.body; // Expecting plain text from the uploaded document
   try {
-    // Split text into paragraphs using double newlines as delimiters
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     console.log("Parsed paragraphs:", paragraphs);
 
-    // Generate embeddings for each paragraph
-    const embeddings = await Promise.all(
-      paragraphs.map(async (para) => {
-        try {
-          const vector = await generateEmbedding(para);
-          return { text: para, vector };
-        } catch (err) {
-          console.error("Error generating embedding for paragraph:", err);
-          return null;
-        }
-      })
-    );
-    // Filter out any null results and store in vectorDB
-    vectorDB = embeddings.filter(item => item !== null);
-    console.log("Embeddings stored in vectorDB:", vectorDB);
-    res.json({ message: 'Document processed and embeddings stored', count: vectorDB.length });
+    const embeddings = await Promise.all(paragraphs.map(async para => {
+      try {
+        const vector = await generateEmbedding(para);
+        return { text: para, vector };
+      } catch (err) {
+        console.error("Error generating embedding for paragraph:", err);
+        return null;
+      }
+    }));
+
+    const validEmbeddings = embeddings.filter(item => item !== null);
+    await vectorStore.addVectors(validEmbeddings.map(e => e.vector), validEmbeddings.map(e => e.text));
+    console.log("Embeddings stored in PostgreSQL:", validEmbeddings);
+
+    const queryText = 'What is the capital of France?';
+    // Call the Python microservice
+    const response = await axios.post('http://localhost:8000/query', {
+      query: queryText 
+    });
+
+    console.log('Response from Python service:', response.data);
+
+    res.json({
+      message: 'Document processed and embeddings stored',
+      count: validEmbeddings.length,
+      pythonServiceResponse: response.data // Include the response from the Python service
+    });
   } catch (error) {
     console.error("Error processing document:", error);
     res.status(500).json({ error: 'Error processing document' });
@@ -525,33 +546,16 @@ app.post('/process-document', async (req, res) => {
 // ------------------------------
 // 6. RAG: Query Document Endpoint
 // ------------------------------
-// This endpoint receives a user query, generates an embedding for the query,
-// retrieves the most relevant paragraphs from vectorDB, and then calls OpenAI
-// with the retrieved context to generate a final answer.
 app.post('/query-document', async (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ error: 'Query text is required' });
 
   try {
-    // Generate embedding for the user query
     const queryVector = await generateEmbedding(query);
-    
-    // Calculate cosine similarity for each paragraph in vectorDB
-    const scored = vectorDB.map(item => ({
-      text: item.text,
-      vector: item.vector,
-      similarity: cosineSimilarity(queryVector, item.vector)
-    }));
-    // Sort by similarity in descending order
-    scored.sort((a, b) => b.similarity - a.similarity);
-    // Retrieve the top 3 matching paragraphs
-    const topMatches = scored.slice(0, 3);
+    const topMatches = await vectorStore.similaritySearch(queryVector, 3); // Retrieve top 3 matches
     console.log("Top matching paragraphs:", topMatches);
 
-    // Concatenate the retrieved paragraphs to form the context
     const context = topMatches.map(item => item.text).join("\n\n");
-
-    // Create final prompt that includes context and the user query
     const finalPrompt = `
 Based on the following context extracted from the document:
 
@@ -559,9 +563,7 @@ ${context}
 
 And the query:
 ${query}
-
-Please generate a detailed answer that incorporates the relevant information.
-    `;
+Please generate a detailed answer that incorporates the relevant information.`;
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
@@ -661,7 +663,9 @@ app.post('/generate-word', async(req, res) => {
     }
 });
 
-/*//Step6: User Feedback Collection 
+/*// ------------------------------
+// 8. User Feedback Collection Endpoint
+// ------------------------------
 app.post('/submit-feedback', (req, res) => {
     const { rating, comments } = req.body;
 
@@ -676,7 +680,6 @@ app.post('/submit-feedback', (req, res) => {
     });
 });
 */
-
 // ==============================
 // Server Listening
 // ==============================
