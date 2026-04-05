@@ -5,6 +5,12 @@ unstructured_inference
 pytesseract
 unstructured_pytesseract
 langchain
+langchain-core
+langchain-text-splitters
+langchain_community
+langchain-postgres
+langchain_openai
+langchain-cohere
 openai
 fastapi
 uvicorn
@@ -13,9 +19,5 @@ pgvector
 orjson
 async-timeout
 langsmith
-langchain-core
-langchain-text-splitters
-langchain
-langchain_community
-langchain-postgres
-langchain_openai
+rank_bm25
+python-dotenv
