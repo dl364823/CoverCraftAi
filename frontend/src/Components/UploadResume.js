@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 
@@ -7,7 +6,6 @@ function UploadResume({ setResumeText, setJobDescription, setMatchedSkills }) {
     const [resumeFile, setResumeFile] = useState(null);
     const [jobDescriptionLocal, setJobDescriptionLocal] = useState('');
     const [loading, setLoading] = useState(false);
-    const [successMessage, setSuccessMessage] = useState('');
     const [error, setError] = useState('');
     const navigate = useNavigate();
 
@@ -26,14 +24,12 @@ function UploadResume({ setResumeText, setJobDescription, setMatchedSkills }) {
             return;
         }
         setResumeFile(file);
-        setSuccessMessage('');
         setError('');
     };
 
     const handleUpload = async () => {
         setLoading(true);
         setError('');
-        setSuccessMessage('');
 
         if (!resumeFile || !jobDescriptionLocal) {
             setError("Please upload a resume and enter a job description.");
@@ -55,7 +51,6 @@ function UploadResume({ setResumeText, setJobDescription, setMatchedSkills }) {
                 jobDescription: jobDescriptionLocal
             });
             setMatchedSkills(matchResponse.data.matchedSkills);
-            setSuccessMessage("File uploaded successfully!"); 
             navigate('/comparison');
         } catch (error) {
             console.error('Error uploading resume:', error);

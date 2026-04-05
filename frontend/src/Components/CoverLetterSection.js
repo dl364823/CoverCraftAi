@@ -216,6 +216,7 @@ function CoverLetterSection({
                 generateSectionStreaming(currentStepName);
             }
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentStep, resumeText, jobDescription]);
 
     if (!resumeText || !jobDescription) {
@@ -223,7 +224,7 @@ function CoverLetterSection({
         return <Navigate to="/" replace />;
     }
 
-    const handleSelection = (optionText, source) => {
+    const handleSelection = (optionText, _source) => {
         setSelectedOption(optionText);
         setSectionHistory(prev => ({
             ...prev,

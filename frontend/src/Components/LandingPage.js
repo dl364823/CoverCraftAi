@@ -89,23 +89,6 @@ const HighlightSection = () => (
   </section>
 );
 
-// MODIFIED: 优化 FeatureCard 组件
-const FeatureCard = ({ icon, title, description }) => (
-  <div className="w-full md:w-1/2 lg:w-1/3 px-4 mb-8">
-      <div className="p-6 hover:bg-blue-100 rounded-lg transition-all duration-200 
-          transform hover:scale-105 hover:shadow-lg h-full flex flex-col justify-between
-          border border-transparent hover:border-blue-200"> {/* NEW: 添加边框效果 */}
-          <div>
-              <div className="text-5xl mb-4 transform hover:scale-110 transition-transform duration-200">
-                  {icon}
-              </div>
-              <h3 className="font-semibold text-xl mb-2">{title}</h3>
-              <p className="text-gray-700">{description}</p>
-          </div>
-      </div>
-  </div>
-);
-
 // MODIFIED: 优化 ScrollingLogos 组件
 const ScrollingLogos = ({ logos, direction = "left" }) => {
   const duplicatedLogos = [...logos, ...logos];
@@ -290,39 +273,6 @@ const GuideSection = () => (
             </div>
         </div>
     </section>
-);
-
-// 5. ComparisonTable Component
-const ComparisonTable = () => (
-  <section className="bg-gray-100">
-    <div className="container mx-auto px-6">
-      <h2 className="text-4xl font-bold text-center mb-12">Why Choose Our Tool?</h2>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr>
-              <th className="px-4 py-2 border-b-2"></th>
-              <th className="px-4 py-2 border-b-2">Our Tool</th>
-              <th className="px-4 py-2 border-b-2">Generic Tools</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              { feature: 'Skill Alignment Analysis', ourTool: '✅', genericTools: '❌' },
-              { feature: 'Structured Guidance', ourTool: '✅', genericTools: '⚠️ Limited' },
-              { feature: 'Personalized Content', ourTool: '✅', genericTools: '❌' },
-            ].map((row, index) => (
-              <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                <td className="border px-4 py-2">{row.feature}</td>
-                <td className="border px-4 py-2">{row.ourTool}</td>
-                <td className="border px-4 py-2">{row.genericTools}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
 );
 
 // 6. FinalCTA Component

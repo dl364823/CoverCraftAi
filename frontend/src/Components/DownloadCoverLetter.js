@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import './DownloadCoverLetter.css';
-import { htmlToText } from 'html-to-text';
-import axios from 'axios';
 import { useNavigate, Navigate } from 'react-router-dom';
 import api from '../utils/api';
 
@@ -91,16 +89,6 @@ ${personalDetails.name || '[Your Name]'}<br />
     setContent(value);
     setCoverLetter(value);
   };
-
-  // Toolbar options for the editor
-  const toolbarOptions = [
-    [{ 'header': '1' }, { 'header': '2' }, { 'font': [] }],
-    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-    ['bold', 'italic', 'underline'],
-    [{ 'align': [] }],
-    ['link'],
-    ['clean']                                         
-  ];
 
   const handleDownload = async () => {
     setIsDownloading(true);
