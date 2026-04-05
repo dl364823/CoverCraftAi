@@ -609,6 +609,78 @@ app.post('/submit-feedback', (req, res) => {
     });
 });
 */
+// ------------------------------
+// 8. SSE Streaming: Cover Letter Section
+// Streams OpenAI tokens as Server-Sent Events so the client renders text
+// token-by-token and measures Time-To-First-Token (TTFT).
+// ------------------------------
+app.post('/generate-section-stream', async (req, res) => {
+  const { sectionName, jobDescription, resumeText } = req.body;
+
+  if (!sectionName || !jobDescription || !resumeText) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  // SSE headers — X-Accel-Buffering: no prevents Nginx/Vercel edge caches from
+  // buffering the stream, which would defeat the purpose of streaming.
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const serverStartTime = Date.now();
+  let firstTokenSent = false;
+
+  // Detect client disconnect mid-stream
+  req.on('close', () => {
+    console.log(`[SSE] Client disconnected during "${sectionName}" generation`);
+  });
+
+  try {
+    const prompt = createPrompt(sectionName, jobDescription, resumeText);
+
+    // stream: true tells OpenAI SDK to return an async iterator of chunks
+    // instead of waiting for the full response — this is the core of low-latency streaming
+    const stream = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert cover letter writer. Generate high-quality, personalized cover letter sections based on the job description and resume.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 2000,
+      temperature: 0.1,
+      stream: true
+    });
+
+    for await (const chunk of stream) {
+      const token = chunk.choices[0]?.delta?.content || '';
+      if (token) {
+        // On first token: emit TTFT metric so client can measure end-to-end latency
+        if (!firstTokenSent) {
+          const ttft = Date.now() - serverStartTime;
+          console.log(`[TTFT] "${sectionName}": ${ttft}ms (server-to-first-token)`);
+          res.write(`data: ${JSON.stringify({ type: 'ttft', ms: ttft })}\n\n`);
+          firstTokenSent = true;
+        }
+        res.write(`data: ${JSON.stringify({ type: 'token', content: token })}\n\n`);
+      }
+    }
+
+    const totalMs = Date.now() - serverStartTime;
+    console.log(`[STREAM_COMPLETE] "${sectionName}": ${totalMs}ms total`);
+    res.write('data: [DONE]\n\n');
+  } catch (error) {
+    console.error(`[STREAM_ERROR] "${sectionName}":`, error.message);
+    res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+  } finally {
+    res.end();
+  }
+});
+
 // ==============================
 // Server Listening
 // ==============================
